@@ -2,7 +2,7 @@
 A setuptools-based setup module.
 
 See:
-https://github.com/hsheth2/avro_gen
+https://github.com/acryldata/avro_gen
 """
 
 from setuptools import setup, find_packages
