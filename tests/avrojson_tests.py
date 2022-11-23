@@ -4,6 +4,11 @@ import unittest
 import six
 import datetime
 
+try:
+    from avro.io import AvroTypeException
+except ImportError:
+    from avro.errors import AvroTypeException
+
 make_avsc_object = schema.make_avsc_object
 
 
@@ -46,7 +51,9 @@ class AvroJsonTest(unittest.TestCase):
         self.assertDictEqual(self.converter.from_json_object(d, test_schema), d)
 
     def test_union(self):
-        test_schema = make_avsc_object(['null', 'int', 'string', {'type': 'record', 'name': 'test_record', 'fields': [
+        test_schema = make_avsc_object(['null', 'int', 'string', {
+            'type': 'record', 'name': 'test_record',
+            'fields': [
             {'name': 'field1', 'type': 'int'},
             {'name': 'field2', 'type': 'string'}
         ]}, {'type': 'record', 'name': 'test_record2', 'fields': [
@@ -137,3 +144,64 @@ class AvroJsonTest(unittest.TestCase):
                 self._inner_dict['f1'] = f1
 
         self.assertDictEqual(self.converter.to_json_object(DD(f1=42)), dict(f1=42))
+
+    def test_fail_logtype_validation_with_exc(self):
+        schema = make_avsc_object({"type": "record", "name": "test_record", "fields": [
+            {"name": "field1", "type": "int"},
+            {"name": "field2", "type": "string"},
+            {"name": "date1", "type": {"type": "int", "logicalType": "date"}}
+        ]})
+
+        input = dict(field1="1", field2="3", date1=11)
+
+        with self.assertRaises(AvroTypeException):
+            self.converter_lt.validate(schema, input, raise_on_error=True)
+
+        self.assertFalse(self.converter_lt.validate(schema, input, raise_on_error=False))
+
+    def test_fail_array_validation_with_exc(self):
+        schema = make_avsc_object({"name":"test-array", "type": "array", "items": "int"})
+
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(schema, {"k1": "v1"}, raise_on_error=True)
+
+        self.assertFalse(self.converter.validate(schema, input))
+
+    def test_fail_map_validation_with_exc(self):
+        schema = make_avsc_object({"type": "map", "values": "int"})
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(schema, [1,2,3], raise_on_error=True)
+
+        # wrong dict key types
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(schema, {1: "hello", 2.33: "bye"},raise_on_error=True)
+
+        # wrong value type
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(schema, {"k1": 22, "k3": "v3"}, raise_on_error=True)
+
+    def test_fail_union_with_exc(self):
+        test_schema = make_avsc_object({"name": "test", "type": "record",
+            "fields": [
+                {"name": "field1", "type": ["int", "string"]}
+            ]})
+        self.converter.validate(test_schema, {"field1": {"int": 22}}, raise_on_error=True)
+        self.converter.validate(test_schema, {"field1": {"string": "22"}}, raise_on_error=True)
+
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(test_schema, {"field1": {"float": 22.2}}, raise_on_error=True)
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(test_schema, {"field1": None}, raise_on_error=True)
+
+    def test_fail_record_with_exc(self):
+        test_schema = make_avsc_object({"name": "test", "type": "record",
+            "fields": [
+                {"name": "field1", "type": "int"},
+                {"name": "field2", "type": "string"}
+            ]})
+
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(test_schema, ["not", "valid"], raise_on_error=True)
+
+        with self.assertRaises(AvroTypeException):
+            self.converter.validate(test_schema, {"field1": 22, "field2": 33}, raise_on_error=True)
